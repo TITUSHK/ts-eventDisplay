@@ -37,6 +37,7 @@
 #include "TGLViewer.h"
 #include "TGLabel.h"
 #include "TGNumberEntry.h"
+#include <map>
 
 
 using namespace std;
@@ -59,6 +60,8 @@ TEveScene*  UnrolledScene;
 TEveScene*  flatGeometryScene;
 TEveViewer* UnrolledView;
 TGNumberEntry* 		NumberEntry;
+TGNumberEntry* 		NEUTMode;
+TGLabel* NEUTModeLabel;
 TEveViewer* New2dView(TString name,TGLViewer::ECameraType type, TEveScene* scene);
 bool loadPMT(int hit_PMTid);
 
@@ -349,10 +352,25 @@ void createGeometry(bool flatTube)
 	double pmtX2=0;
 	double pmtY2=0;
 	double pmtZ2=0;
+	//float oldx=0;
+	//float oldy=0;
+	//float oldz=0;
 	for(int tubeId=0;tubeId<TitusPMTs->GetEntries();tubeId++)
 	{
 		TitusPMTs->GetEntry(tubeId);
 		
+		//cout<<tubeId<<" "<<pmt_pos_x<<" "<<pmt_pos_y<<" "<<pmt_pos_z<<" "<<pmt_size;
+		//if(tubeId!=0)
+		//{
+	 	//	float area=3.14159*(pmt_size/2)*(pmt_size/2);
+		//	float step=sqrt((oldx-pmt_pos_x)*(oldx-pmt_pos_x)+(oldy-pmt_pos_y)*(oldy-pmt_pos_y)+(oldz-pmt_pos_z)*(oldz-pmt_pos_z));
+		//	std::cout<<" "<<step<<" ";
+		//  std::cout<<area<<" "<<100*area/(step*step);
+		//}
+		//  oldx=pmt_pos_x;
+		//  oldy=pmt_pos_y;
+		//  oldz=pmt_pos_z;
+		//std::cout<<std::endl;
 		double pmtX = pmt_pos_x;
 		double pmtY = pmt_pos_y;
 		double pmtZ = pmt_pos_z;
@@ -417,7 +435,7 @@ void       UnrollView(double* pmtX ,double* pmtY,double* pmtZ,int location,float
 	if(location==2)
 	{//		cout<<" subtract  2* "<<maxY<<" from "<<*pmtY<<endl;
 		
-		*pmtY-=(maxY+maxZ);
+		*pmtY=-(maxY+maxZ+*pmtY);
 	}	
 	if(location==1)
 	{
@@ -654,6 +672,28 @@ public:
 		event_id=eventRequested;
 		load_event();
 	}
+	void SelecNEUTMode(int)
+	{
+		std::cout<<" you want to find an event with NEUT mode = "<<mode<<std::endl;
+		Int_t mode=NEUTMode->GetIntNumber();
+		std::cout<<" you want to find an event with NEUT mode = "<<mode<<std::endl;
+		/*	Int_t eventRequested=NumberEntry->GetIntNumber();
+		if(eventRequested>=TitusEvents->GetEntries())
+		{
+		cout<<" You  can not go beyond the  end of the file, there are "
+		<<TitusEvents->GetEntries()<<" entries "<<endl;
+		cout<<" numbered 0 to "<<TitusEvents->GetEntries()-1<<" ."<<endl;
+		return;
+		}
+		if(eventRequested<0)
+		{
+		cout<<" Events numbers start at zero "<<endl;
+		return;
+		}
+		event_id=eventRequested;
+		load_event();
+		*/
+	}
 };
 //______________________________________________________________________________
 void make_gui()
@@ -676,7 +716,7 @@ void make_gui()
 	TGGroupFrame* Group;
 	
 	Group = new TGGroupFrame(fCanvasWindow->GetContainer(),"Event Navigation");
-	TGHorizontalFrame* hf = new TGHorizontalFrame(Group);
+	TGHorizontalFrame* hf = new TGHorizontalFrame(Group,32,32);
 	{
 		
 		TString icondir( Form("%s/icons/", gSystem->Getenv("ROOTSYS")) );
@@ -692,8 +732,8 @@ void make_gui()
 	}
 	Group->AddFrame(hf);
 	
+	hf = new TGHorizontalFrame(Group,32,32);
 	TGLayoutHints*  fButtonLayout =  new TGLayoutHints(kLHintsCenterY|kLHintsCenterX);
-	hf = new TGHorizontalFrame(Group);
 	{
 		
 		TGLabel* Label = new TGLabel(hf, "Event");
@@ -705,6 +745,16 @@ void make_gui()
 		hf->AddFrame( NumberEntry, new TGLayoutHints(kLHintsCenterX, 5, 5, 5, 5));
 		Label = new TGLabel(hf, " In File.");
 		hf->AddFrame(Label,fButtonLayout);
+	}
+	Group->AddFrame(hf);
+	hf = new TGHorizontalFrame(Group);
+	{
+		NEUTModeLabel = new TGLabel(hf, " NEUT mode: (unset) ");
+		hf->AddFrame(NEUTModeLabel);
+		//NEUTMode = new TGNumberEntry(hf, 1, 7,4, TGNumberFormat::kNESInteger,
+		//	TGNumberFormat::kNEANonNegative,TGNumberFormat::kNELLimitMin,0);
+		//	NEUTMode->Connect("ValueSet(Long_t)", "EvNavHandler", fh, "SelecNEUTMode(int)");
+		//hf->AddFrame( NumberEntry);//, new TGLayoutHints(kLHintsRightX, 5, 5, 5, 5));
 	}
 	Group->AddFrame(hf);
 	fCanvasWindow->AddFrame(Group);
@@ -757,16 +807,25 @@ void load_event()
 	cout<<"Event : "<<evt<<endl;
 	gStyle->SetPalette(1, 0);
 	//TEveRGBAPalette* pal = new TEveRGBAPalette(150, 1000);
-	TEveRGBAPalette* pal = new TEveRGBAPalette(0, 4000.0);
-	pal->SetMin(25.);
+	TEveRGBAPalette* pal = new TEveRGBAPalette();//0, 4000.0);
+	TEveRGBAPalette* palUnrolled = new TEveRGBAPalette();//0, 4000.0);
+	
 	TEveBoxSet*  CherenkovHits= new TEveBoxSet("Hits ");
 	CherenkovHits->SetPalette(pal);
+	TEveBoxSet*  CherenkovHits2= new TEveBoxSet(Form("PMT Hits (Unrolled)"));
+	CherenkovHits2->SetPalette(palUnrolled);
+	
+	pal->SetLimits(0.0,500.0);
+	pal->SetMinMax(0.0,500.0);
 	pal->SetFixColorRange(kFALSE);
 	pal->SetOverflowAction( TEveRGBAPalette::kLA_Clip);
-	CherenkovHits->Reset(TEveBoxSet::kBT_Cone, kFALSE, 64);
 	
-	TEveBoxSet*  CherenkovHits2= new TEveBoxSet(Form("PMT Hits (Unrolled)"));
-	CherenkovHits2->SetPalette(pal);
+	palUnrolled->SetLimits(0.0,500.0);
+	palUnrolled->SetMinMax(0.0,500.0);
+	palUnrolled->SetFixColorRange(kFALSE);
+	palUnrolled->SetOverflowAction( TEveRGBAPalette::kLA_Clip);
+	
+	CherenkovHits->Reset(TEveBoxSet::kBT_Cone, kFALSE, 64);
 	CherenkovHits2->Reset(TEveBoxSet::kBT_Cone, kFALSE, 64);
 	
 	/*
@@ -778,6 +837,8 @@ void load_event()
 	float minT=1e10;
 	float maxT=-1e10;
 	
+	cout<<" mode :"<<mode<<endl;
+	NEUTModeLabel->SetText(Form(" NEUT mode %i ",mode));
 	std::map<int,hitStore> PMTmap;
 	for(int i = 0;i<nhits;i++)
 	{
@@ -807,10 +868,13 @@ void load_event()
 	}
 	if(fDigitIsTime)
 	{
-		if(maxT>100)maxT=100;
+		if(maxT>1000)maxT=1000;
 		pal->SetLimits(minT,maxT);
 		pal->SetMin(minT);
 		pal->SetMax(maxT);
+		palUnrolled->SetLimits(minT,maxT);
+		palUnrolled->SetMin(minT);
+		palUnrolled->SetMax(maxT);
 	}
 	else
 	{
