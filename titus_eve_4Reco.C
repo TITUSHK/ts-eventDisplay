@@ -372,7 +372,7 @@ void createGeometry(bool flatTube)
 	
 	gGeoManager->GetTopNode()->ls();
 	float PMTRadius = pmt_size/2.0;
-	cout<<" Phototube radius is "<<PMTRadius*0.393700787<<" inches "<<endl;
+	cout<<" Phototube radius is "<<PMTRadius*0.0393700787<<" inches "<<endl;
 	Double_t rmin   = 0.900000*PMTRadius;
 	Double_t rmax   = PMTRadius;
 	Double_t theta1 = 0.000000;
