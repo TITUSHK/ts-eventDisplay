@@ -33,6 +33,8 @@
 #include "TEveBoxSet.h"
 #include "TEveGeoShape.h"
 #include "TEveGeoNode.h"
+#include "TEveRGBAPalette.h"
+#include "TTimer.h"
 
 #include "TGLViewer.h"
 #include "TGLabel.h"
@@ -62,9 +64,11 @@ TEveViewer* UnrolledView;
 TGNumberEntry* 		NumberEntry;
 TGNumberEntry* 		NEUTMode;
 TGLabel* NEUTModeLabel;
+TEveRGBAPalette *pal3D,*palUnrolled;
 TEveViewer* New2dView(TString name,TGLViewer::ECameraType type, TEveScene* scene);
 bool loadPMT(int hit_PMTid);
-
+class PaletteHandler;
+std::vector<PaletteHandler*> allPaletteHandlers;
 Int_t event_id       = 0; // Current event id.
 
 TEveTrackList *gTrackList = 0;
@@ -247,6 +251,53 @@ int PMTLocation()
 	}
 	return location;
 }
+class PaletteHandler
+{
+	TTimer*              fTimer;
+	int  minValue,maxValue,  lowLimit,highLimit;
+	TString me;
+	TEveRGBAPalette* fPalette;
+	unsigned int myNumber;
+	static bool busy;
+public:
+	PaletteHandler(TString m,TEveRGBAPalette* f) : me(m), fPalette(f)  
+	{
+		fTimer = new TTimer();
+		fTimer->Connect("Timeout()", "PaletteHandler", this,"TimedOut()");
+		myNumber=allPaletteHandlers.size();
+		allPaletteHandlers.push_back(this);		
+		busy=kFALSE;
+	}
+	void setMinMax(int minValue2Set,int maxValue2Set)
+	{
+		fPalette->SetMinMax(minValue2Set,maxValue2Set);
+		minValue=minValue2Set;
+		maxValue=maxValue2Set;
+	}
+	TString Called(){return me;}
+	void TimedOut()
+	{
+		if(busy)return;
+		busy=kTRUE;
+		for(unsigned int i=0;i<allPaletteHandlers.size();i++)
+		{
+			if(i!=myNumber){
+				allPaletteHandlers[i]->setMinMax(minValue,maxValue);
+			}
+		}
+		gEve->GetScenes()->RepaintAllScenes(kFALSE);
+		gEve->DoRedraw3D();
+		busy=kFALSE;
+	}
+	void PaletteChanged()
+	{
+		minValue=fPalette->GetMinVal();
+    maxValue=fPalette->GetMaxVal();
+    fTimer->Start(500,kTRUE);
+	}
+};
+bool PaletteHandler::busy;
+
 /******************************************************************************/
 // Initialization and steering functions
 /******************************************************************************/
@@ -321,7 +372,7 @@ void createGeometry(bool flatTube)
 	
 	gGeoManager->GetTopNode()->ls();
 	float PMTRadius = pmt_size/2.0;
-	cout<<" Phototube radius is "<<PMTRadius<<endl;
+	cout<<" Phototube radius is "<<PMTRadius*0.393700787<<" inches "<<endl;
 	Double_t rmin   = 0.900000*PMTRadius;
 	Double_t rmax   = PMTRadius;
 	Double_t theta1 = 0.000000;
@@ -463,7 +514,27 @@ TEveViewer* New2dView(TString name,TGLViewer::ECameraType type, TEveScene* scene
 	View->GetGLViewer()->SetResetCamerasOnUpdate(kFALSE);
 	return View;
 }
-
+void createPalettes()
+{
+	allPaletteHandlers.clear();
+	pal3D = new TEveRGBAPalette();
+	PaletteHandler* ph1 = new PaletteHandler("pal",pal3D); 
+	pal3D->Connect("MinMaxValChanged()", "PaletteHandler", ph1,"PaletteChanged()");
+	pal3D->SetLimits(0.0,1000.0);
+	pal3D->SetMinMax(0.0,1000.0);
+	pal3D->SetFixColorRange(kFALSE);
+	pal3D->SetOverflowAction( TEveRGBAPalette::kLA_Clip);
+	
+	palUnrolled = new TEveRGBAPalette();//0, 4000.0);
+	PaletteHandler* ph2 = new PaletteHandler("palUnrolled",palUnrolled); 
+	palUnrolled->Connect("MinMaxValChanged()", "PaletteHandler", ph2,"PaletteChanged()");
+	
+	
+	palUnrolled->SetLimits(0.0,1000.0);
+	palUnrolled->SetMinMax(0.0,1000.0);
+	palUnrolled->SetFixColorRange(kFALSE);
+	palUnrolled->SetOverflowAction( TEveRGBAPalette::kLA_Clip);
+}
 //______________________________________________________________________________
 void titus_eve_4Reco()
 {
@@ -611,12 +682,19 @@ void titus_eve_4Reco()
 	UnrolledView->AddScene(flatGeometryScene);
 	TEveSceneInfo* gSI= (TEveSceneInfo*) (UnrolledView->FindChild("SI - Geometry scene"));
 	if(gSI!=NULL)gSI->Delete();
+	/*
+	Initialise the palettes etc.
+	*/
+	gStyle->SetPalette(1, 0);
+	
 	
 	TitusEvents->GetEntry(0) ;
 	cout<<" There are "<<TitusEvents->GetEntries()<<" events "<<endl;
 	/*
 	load the first event
 	*/
+	
+	
 	load_event();
 	/*
 	Get Eve started
@@ -625,7 +703,6 @@ void titus_eve_4Reco()
 	gEve->Redraw3D(kTRUE); // Reset camera after the first event has been shown.
 	
 }
-
 /******************************************************************************/
 // GUI
 /******************************************************************************/
@@ -694,7 +771,10 @@ public:
 		load_event();
 		*/
 	}
+	
 };
+
+
 //______________________________________________________________________________
 void make_gui()
 {
@@ -712,7 +792,7 @@ void make_gui()
 	fCanvasWindow->SetContainer(fFrame);   
 	// use hierarchical cleaning for container
 	fFrame->SetCleanup(kDeepCleanup);  
-	EvNavHandler    *fh = new EvNavHandler;
+	EvNavHandler* fh = new EvNavHandler;
 	TGGroupFrame* Group;
 	
 	Group = new TGGroupFrame(fCanvasWindow->GetContainer(),"Event Navigation");
@@ -790,7 +870,7 @@ bool loadPMT(int hit_PMTid)
 }
 void load_event()
 {
-	
+	createPalettes();
 	
   
 	// Load event specified in global event_id.
@@ -804,26 +884,14 @@ void load_event()
 	if( UnrolledScene !=0)UnrolledScene->DestroyElements();	
 	
 	TitusEvents->GetEvent(event_id);
-	cout<<"Event : "<<evt<<endl;
-	gStyle->SetPalette(1, 0);
-	//TEveRGBAPalette* pal = new TEveRGBAPalette(150, 1000);
-	TEveRGBAPalette* pal = new TEveRGBAPalette();//0, 4000.0);
-	TEveRGBAPalette* palUnrolled = new TEveRGBAPalette();//0, 4000.0);
+	cout<<"Event : "<<evt;
 	
 	TEveBoxSet*  CherenkovHits= new TEveBoxSet("Hits ");
-	CherenkovHits->SetPalette(pal);
+	CherenkovHits->SetPalette(pal3D);
 	TEveBoxSet*  CherenkovHits2= new TEveBoxSet(Form("PMT Hits (Unrolled)"));
 	CherenkovHits2->SetPalette(palUnrolled);
 	
-	pal->SetLimits(0.0,500.0);
-	pal->SetMinMax(0.0,500.0);
-	pal->SetFixColorRange(kFALSE);
-	pal->SetOverflowAction( TEveRGBAPalette::kLA_Clip);
 	
-	palUnrolled->SetLimits(0.0,500.0);
-	palUnrolled->SetMinMax(0.0,500.0);
-	palUnrolled->SetFixColorRange(kFALSE);
-	palUnrolled->SetOverflowAction( TEveRGBAPalette::kLA_Clip);
 	
 	CherenkovHits->Reset(TEveBoxSet::kBT_Cone, kFALSE, 64);
 	CherenkovHits2->Reset(TEveBoxSet::kBT_Cone, kFALSE, 64);
@@ -837,12 +905,12 @@ void load_event()
 	float minT=1e10;
 	float maxT=-1e10;
 	
-	cout<<" mode :"<<mode<<endl;
+	cout<<", NEUT  mode is:"<<mode<<endl;
 	NEUTModeLabel->SetText(Form(" NEUT mode %i ",mode));
 	std::map<int,hitStore> PMTmap;
 	for(int i = 0;i<nhits;i++)
 	{
-		float Time=hit_time[i]; 
+		float Time=fmax(0.0,hit_time[i]); 
 		minT = TMath::Min(minT,Time);
 		maxT = TMath::Max(maxT,Time);
 		// Add up all the hits contributing to a give PMT
@@ -869,9 +937,9 @@ void load_event()
 	if(fDigitIsTime)
 	{
 		if(maxT>1000)maxT=1000;
-		pal->SetLimits(minT,maxT);
-		pal->SetMin(minT);
-		pal->SetMax(maxT);
+		pal3D->SetLimits(minT,maxT);
+		pal3D->SetMin(minT);
+		pal3D->SetMax(maxT);
 		palUnrolled->SetLimits(minT,maxT);
 		palUnrolled->SetMin(minT);
 		palUnrolled->SetMax(maxT);
