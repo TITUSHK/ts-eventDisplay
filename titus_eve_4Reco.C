@@ -31,6 +31,7 @@
 #include "TEveTrack.h"
 #include "TEveTrans.h"
 #include "TEveBoxSet.h"
+#include "TEveBox.h"
 #include "TEveGeoShape.h"
 #include "TEveGeoNode.h"
 #include "TEveRGBAPalette.h"
@@ -48,13 +49,20 @@ using namespace std;
 const float tankR=5500;
 const float tankZ=11000;
 
+bool haveReconFile;
+bool drawPrimaryOnly;
 Double_t maxX,maxY,maxZ,minZ;
 
 TTree * TitusEvents;
 TTree * TitusPMTs;
+TTree * Low_E;
+TTree * High_E_Electron;
+TTree * High_E_Muon;
+TTree * Final_Reconstruction;
+
 void       make_gui();
 void       load_event();
-
+void       loadReconstructedEvent();
 TGCheckButton *fColourIsTimeBox;
 TGeoVolume *WorldVolume,*SimpleVolume;
 TEveElementList *FlatGeometry;
@@ -67,6 +75,9 @@ TGLabel* NEUTModeLabel;
 TEveRGBAPalette *pal3D,*palUnrolled;
 TEveViewer* New2dView(TString name,TGLViewer::ECameraType type, TEveScene* scene);
 bool loadPMT(int hit_PMTid);
+void     CreateCube(float vert[24],TLorentzVector centreVec,float side);
+void               NextCubeVertex(float vert[6],float step,int changeMe,float sign);
+
 class PaletteHandler;
 std::vector<PaletteHandler*> allPaletteHandlers;
 Int_t event_id       = 0; // Current event id.
@@ -225,12 +236,163 @@ TBranch        *b_pmt_qe;   //!
 TBranch        *b_pmt_time_res;   //!
 TBranch        *b_is_lappd;   //!
 
+/*
+now the reconstructed information, first Low_E
+*/
+// Declaration of leaf types
+Int_t           Low_E_evt;
+Int_t           Low_E_nClusters;
+Int_t           Low_E_nSubevents;
+Int_t           Low_E_cluster[20];   //[nClusters]
+Double_t        recoVtxXLowE[20];   //[nClusters]
+Double_t        recoVtxYLowE[20];   //[nClusters]
+Double_t        recoVtxZLowE[20];   //[nClusters]
+Double_t        recoTimeLowE[20];   //[nClusters]
+Double_t        recoDirXLowE[20];   //[nClusters]
+Double_t        recoDirYLowE[20];   //[nClusters]
+Double_t        recoDirZLowE[20];   //[nClusters]
+Double_t        recoChkvAngleLowE[20];   //[nClusters]
+Double_t        recoEnergyLowE[20];   //[nClusters]
+
+// List of branches
+TBranch        *b_Low_E_evt;   //!
+TBranch        *b_Low_E_nClusters;   //!
+TBranch        *b_Low_E_nSubevents;   //!
+TBranch        *b_Low_E_cluster;   //!
+TBranch        *b_recoVtxXLowE;   //!
+TBranch        *b_recoVtxYLowE;   //!
+TBranch        *b_recoVtxZLowE;   //!
+TBranch        *b_recoTimeLowE;   //!
+TBranch        *b_recoDirXLowE;   //!
+TBranch        *b_recoDirYLowE;   //!
+TBranch        *b_recoDirZLowE;   //!
+TBranch        *b_recoChkvAngleLowE;   //!
+TBranch        *b_recoEnergyLowE;   //!
+
+/*
+High_E_Electron
+*/
+// Declaration of leaf types
+Int_t           High_E_Electron_evt;
+Int_t           High_E_Electron_nClusters;
+Int_t           High_E_Electron_nSubevents;
+Int_t           High_E_Electron_cluster[20];   //[nSubevents]
+Int_t           High_E_Electron_ring[20];   //[nSubevents]
+Double_t        recoVtxXHighEElectron[20];   //[nSubevents]
+Double_t        recoVtxYHighEElectron[20];   //[nSubevents]
+Double_t        recoVtxZHighEElectron[20];   //[nSubevents]
+Double_t        recoTimeHighEElectron[20];   //[nSubevents]
+Double_t        recoDirXHighEElectron[20];   //[nSubevents]
+Double_t        recoDirYHighEElectron[20];   //[nSubevents]
+Double_t        recoDirZHighEElectron[20];   //[nSubevents]
+Double_t        recoChkvAngleHighEElectron[20];   //[nSubevents]
+Double_t        recoEnergyHighEElectron[20];   //[nSubevents]
+Double_t        recoLnLHighEElectron[20];   //[nSubevents]
+
+// List of branches
+TBranch        *b_High_E_Electron_evt;   //!
+TBranch        *b_High_E_Electron_nClusters;   //!
+TBranch        *b_High_E_Electron_nSubevents;   //!
+TBranch        *b_High_E_Electron_cluster;   //!
+TBranch        *b_High_E_Electron_ring;   //!
+TBranch        *b_recoVtxXHighEElectron;   //!
+TBranch        *b_recoVtxYHighEElectron;   //!
+TBranch        *b_recoVtxZHighEElectron;   //!
+TBranch        *b_recoTimeHighEElectron;   //!
+TBranch        *b_recoDirXHighEElectron;   //!
+TBranch        *b_recoDirYHighEElectron;   //!
+TBranch        *b_recoDirZHighEElectron;   //!
+TBranch        *b_recoChkvAngleHighEElectron;   //!
+TBranch        *b_recoEnergyHighEElectron;   //!
+TBranch        *b_recoLnLHighEElectron;   //!
+
+/*
+High E muon
+*/
+// Declaration of leaf types
+Int_t           High_E_Muon_evt;
+Int_t           High_E_Muon_nClusters;
+Int_t           High_E_Muon_nSubevents;
+Int_t           High_E_Muon_cluster[20];   //[nSubevents]
+Int_t           High_E_Muon_ring[20];   //[nSubevents]
+Double_t        recoVtxXHighEMuon[20];   //[nSubevents]
+Double_t        recoVtxYHighEMuon[20];   //[nSubevents]
+Double_t        recoVtxZHighEMuon[20];   //[nSubevents]
+Double_t        recoTimeHighEMuon[20];   //[nSubevents]
+Double_t        recoDirXHighEMuon[20];   //[nSubevents]
+Double_t        recoDirYHighEMuon[20];   //[nSubevents]
+Double_t        recoDirZHighEMuon[20];   //[nSubevents]
+Double_t        recoChkvAngleHighEMuon[20];   //[nSubevents]
+Double_t        recoEnergyHighEMuon[20];   //[nSubevents]
+Double_t        recoLnLHighEMuon[20];   //[nSubevents]
+
+// List of branches
+TBranch        *b_High_E_Muon_evt;   //!
+TBranch        *b_High_E_Muon_nClusters;   //!
+TBranch        *b_High_E_Muon_nSubevents;   //!
+TBranch        *b_High_E_Muon_cluster;   //!
+TBranch        *b_High_E_Muon_ring;   //!
+TBranch        *b_recoVtxXHighEMuon;   //!
+TBranch        *b_recoVtxYHighEMuon;   //!
+TBranch        *b_recoVtxZHighEMuon;   //!
+TBranch        *b_recoTimeHighEMuon;   //!
+TBranch        *b_recoDirXHighEMuon;   //!
+TBranch        *b_recoDirYHighEMuon;   //!
+TBranch        *b_recoDirZHighEMuon;   //!
+TBranch        *b_recoChkvAngleHighEMuon;   //!
+TBranch        *b_recoEnergyHighEMuon;   //!
+TBranch        *b_recoLnLHighEMuon;   //!
+/*
+Final Reconstruction
+*/
+
+// Declaration of leaf types
+Int_t           Final_evt;
+Int_t           Final_nClusters;
+Int_t           Final_nSubevents;
+Int_t           recoNRings[20];   //[nClusters]
+Int_t           Final_cluster[20];   //[nSubevents]
+Int_t           Final_ring[20];   //[nSubevents]
+Double_t        recoVtxX[20];   //[nSubevents]
+Double_t        recoVtxY[20];   //[nSubevents]
+Double_t        recoVtxZ[20];   //[nSubevents]
+Double_t        recoTime[20];   //[nSubevents]
+Double_t        recoDirX[20];   //[nSubevents]
+Double_t        recoDirY[20];   //[nSubevents]
+Double_t        recoDirZ[20];   //[nSubevents]
+Double_t        recoChkvAngle[20];   //[nSubevents]
+Double_t        recoEnergy[20];   //[nSubevents]
+Int_t           recoPID[20];   //[nSubevents]
+
+// List of branches
+TBranch        *b_Final_evt;   //!
+TBranch        *b_Final_nClusters;   //!
+TBranch        *b_Final_nSubevents;   //!
+TBranch        *b_recoNRings;   //!
+TBranch        *b_Final_cluster;   //!
+TBranch        *b_Final_ring;   //!
+TBranch        *b_recoVtxX;   //!
+TBranch        *b_recoVtxY;   //!
+TBranch        *b_recoVtxZ;   //!
+TBranch        *b_recoTime;   //!
+TBranch        *b_recoDirX;   //!
+TBranch        *b_recoDirY;   //!
+TBranch        *b_recoDirZ;   //!
+TBranch        *b_recoChkvAngle;   //!
+TBranch        *b_recoEnergy;   //!
+TBranch        *b_recoPID;   //!
+
 struct hitStore
 {
 	int count;
 	float time;
-}
-;	
+};
+struct hitStoreCompare{
+	bool operator()(pair<int, hitStore> a,pair<int, hitStore> b)
+	{
+		return a.second.time<b.second.time;
+	}
+};	
 void       UnrollView(double* pmtX ,double* pmtY,double* pmtZ,int location,float maxY,float maxZ);
 int PMTLocation()
 {
@@ -536,7 +698,7 @@ void createPalettes()
 	palUnrolled->SetOverflowAction( TEveRGBAPalette::kLA_Clip);
 }
 //______________________________________________________________________________
-void titus_eve_4Reco()
+void titus_eve_4Reco(TString inputFilename="",TString recoFileName="")
 {
 	//#include "titus_eve.h"
 	
@@ -552,18 +714,22 @@ void titus_eve_4Reco()
 	
 	TString CurrentDirectory=gSystem->pwd();
 	TString originalDirectory=CurrentDirectory;
-	
 	TGFileInfo fi;
-	fi.fFileTypes = filetypes;
-	fi.fIniDir    = StrDup(CurrentDirectory);
-	cout<<" Please choose your WCHsandbox reconstructed Titus file "<<endl;
-	new TGFileDialog(gClient->GetRoot(), 0, kFDOpen, &fi);
-	if (!fi.fFilename) {
-		cout<<" Nofile chosen "<<endl;
-		return;
+	
+	if(inputFilename.EqualTo(""))
+	{
+		fi.fFileTypes = filetypes;
+		fi.fIniDir    = StrDup(CurrentDirectory);
+		cout<<" Please choose your WCHsandbox  Titus file "<<endl;
+		new TGFileDialog(gClient->GetRoot(), 0, kFDOpen, &fi);
+		if (!fi.fFilename) {
+			cout<<" Nofile chosen "<<endl;
+			return;
+		}
+		inputFilename=fi.fFilename;
 	}
-	cout<<" opening file "<<fi.fFilename<<endl;
-	TFile* TitusFile = new TFile(fi.fFilename);
+	cout<<" opening file "<<inputFilename<<endl;
+	TFile* TitusFile = new TFile(inputFilename);
 	
 	TitusFile->ls();
 	TitusEvents=(TTree *) TitusFile->Get("HitsTree");
@@ -645,6 +811,118 @@ void titus_eve_4Reco()
 		TitusPMTs->SetBranchAddress("pmt_time_res", &pmt_time_res, &b_pmt_time_res);
 		TitusPMTs->SetBranchAddress("is_lappd", &is_lappd, &b_is_lappd);
 	}
+	
+	cout<<" Now open reconstructed file "<<endl;
+	haveReconFile=kFALSE;
+	if(recoFileName.EqualTo(""))
+	{
+		cout<<" Please choose the matching reconstructed file file "<<endl;
+		new TGFileDialog(gClient->GetRoot(), 0, kFDOpen, &fi);
+		if (!fi.fFilename) {
+			cout<<" Nofile chosen "<<endl;
+		}
+		else
+		{
+			recoFileName=fi.fFilename;
+		}
+	}
+	if(!recoFileName.EqualTo(""))
+	{
+		cout<<" opening reconstruction file "<<recoFileName<<endl;
+		TFile* TitusFile = new TFile(recoFileName);
+		
+		TitusFile->ls();
+		Low_E=(TTree *) TitusFile->Get("Low_E");
+		if(Low_E!=NULL)
+			High_E_Electron=(TTree *) TitusFile->Get("High_E_Electron");
+    if(High_E_Electron!=NULL)
+			High_E_Muon=(TTree *) TitusFile->Get("High_E_Muon");
+		if(High_E_Muon!=NULL)
+			Final_Reconstruction=(TTree *) TitusFile->Get("Final_Reconstruction");
+		
+		if(Final_Reconstruction==NULL)
+		{
+			cout<<" No Final_Reconstruction  TTree found in this file "<<endl;
+		}
+		else
+			haveReconFile=kTRUE;
+	}
+	
+	if(Low_E!=NULL)
+	{
+		Low_E->SetBranchAddress("evt", &Low_E_evt, &b_Low_E_evt);
+		Low_E->SetBranchAddress("Clusters", &Low_E_nClusters, &b_Low_E_nClusters);
+		Low_E->SetBranchAddress("nSubevents", &Low_E_nSubevents, &b_Low_E_nSubevents);
+		Low_E->SetBranchAddress("cluster", Low_E_cluster, &b_Low_E_cluster);
+		Low_E->SetBranchAddress("recoVtxXLowE", recoVtxXLowE, &b_recoVtxXLowE);
+		Low_E->SetBranchAddress("recoVtxYLowE", recoVtxYLowE, &b_recoVtxYLowE);
+		Low_E->SetBranchAddress("recoVtxZLowE", recoVtxZLowE, &b_recoVtxZLowE);
+		Low_E->SetBranchAddress("recoTimeLowE", recoTimeLowE, &b_recoTimeLowE);
+		Low_E->SetBranchAddress("recoDirXLowE", recoDirXLowE, &b_recoDirXLowE);
+		Low_E->SetBranchAddress("recoDirYLowE", recoDirYLowE, &b_recoDirYLowE);
+		Low_E->SetBranchAddress("recoDirZLowE", recoDirZLowE, &b_recoDirZLowE);
+		Low_E->SetBranchAddress("recoChkvAngleLowE", recoChkvAngleLowE, &b_recoChkvAngleLowE);
+		Low_E->SetBranchAddress("recoEnergyLowE", recoEnergyLowE, &b_recoEnergyLowE);
+	}
+	if(High_E_Electron!=NULL)
+	{
+		
+		High_E_Electron->SetBranchAddress("evt", &High_E_Electron_evt, &b_High_E_Electron_evt);
+		High_E_Electron->SetBranchAddress("nClusters", &High_E_Electron_nClusters, &b_High_E_Electron_nClusters);
+		High_E_Electron->SetBranchAddress("nSubevents", &High_E_Electron_nSubevents, &b_High_E_Electron_nSubevents);
+		High_E_Electron->SetBranchAddress("cluster", High_E_Electron_cluster, &b_High_E_Electron_cluster);
+		High_E_Electron->SetBranchAddress("ring", High_E_Electron_ring, &b_High_E_Electron_ring);
+		High_E_Electron->SetBranchAddress("recoVtxXHighEElectron", recoVtxXHighEElectron, &b_recoVtxXHighEElectron);
+		High_E_Electron->SetBranchAddress("recoVtxYHighEElectron", recoVtxYHighEElectron, &b_recoVtxYHighEElectron);
+		High_E_Electron->SetBranchAddress("recoVtxZHighEElectron", recoVtxZHighEElectron, &b_recoVtxZHighEElectron);
+		High_E_Electron->SetBranchAddress("recoTimeHighEElectron", recoTimeHighEElectron, &b_recoTimeHighEElectron);
+		High_E_Electron->SetBranchAddress("recoDirXHighEElectron", recoDirXHighEElectron, &b_recoDirXHighEElectron);
+		High_E_Electron->SetBranchAddress("recoDirYHighEElectron", recoDirYHighEElectron, &b_recoDirYHighEElectron);
+		High_E_Electron->SetBranchAddress("recoDirZHighEElectron", recoDirZHighEElectron, &b_recoDirZHighEElectron);
+		High_E_Electron->SetBranchAddress("recoChkvAngleHighEElectron", recoChkvAngleHighEElectron, &b_recoChkvAngleHighEElectron);
+		High_E_Electron->SetBranchAddress("recoEnergyHighEElectron", recoEnergyHighEElectron, &b_recoEnergyHighEElectron);
+		High_E_Electron->SetBranchAddress("recoLnLHighEElectron", recoLnLHighEElectron, &b_recoLnLHighEElectron);		
+	}
+	if(High_E_Muon!=NULL)
+	{
+		High_E_Muon->SetBranchAddress("evt", &High_E_Muon_evt, &b_High_E_Muon_evt);
+		High_E_Muon->SetBranchAddress("nClusters", &High_E_Muon_nClusters, &b_High_E_Muon_nClusters);
+		High_E_Muon->SetBranchAddress("nSubevents", &High_E_Muon_nSubevents, &b_High_E_Muon_nSubevents);
+		High_E_Muon->SetBranchAddress("cluster", High_E_Muon_cluster, &b_High_E_Muon_cluster);
+		High_E_Muon->SetBranchAddress("ring", High_E_Muon_ring, &b_High_E_Muon_ring);
+		High_E_Muon->SetBranchAddress("recoVtxXHighEMuon", recoVtxXHighEMuon, &b_recoVtxXHighEMuon);
+		High_E_Muon->SetBranchAddress("recoVtxYHighEMuon", recoVtxYHighEMuon, &b_recoVtxYHighEMuon);
+		High_E_Muon->SetBranchAddress("recoVtxZHighEMuon", recoVtxZHighEMuon, &b_recoVtxZHighEMuon);
+		High_E_Muon->SetBranchAddress("recoTimeHighEMuon", recoTimeHighEMuon, &b_recoTimeHighEMuon);
+		High_E_Muon->SetBranchAddress("recoDirXHighEMuon", recoDirXHighEMuon, &b_recoDirXHighEMuon);
+		High_E_Muon->SetBranchAddress("recoDirYHighEMuon", recoDirYHighEMuon, &b_recoDirYHighEMuon);
+		High_E_Muon->SetBranchAddress("recoDirZHighEMuon", recoDirZHighEMuon, &b_recoDirZHighEMuon);
+		High_E_Muon->SetBranchAddress("recoChkvAngleHighEMuon", recoChkvAngleHighEMuon, &b_recoChkvAngleHighEMuon);
+		High_E_Muon->SetBranchAddress("recoEnergyHighEMuon", recoEnergyHighEMuon, &b_recoEnergyHighEMuon);
+		High_E_Muon->SetBranchAddress("recoLnLHighEMuon", recoLnLHighEMuon, &b_recoLnLHighEMuon);
+	}
+	if(Final_Reconstruction!=NULL)
+	{
+		
+		Final_Reconstruction->SetBranchAddress("evt", &Final_evt, &b_Final_evt);
+		Final_Reconstruction->SetBranchAddress("nClusters", &Final_nClusters, &b_Final_nClusters);
+		Final_Reconstruction->SetBranchAddress("nSubevents", &Final_nSubevents, &b_Final_nSubevents);
+		Final_Reconstruction->SetBranchAddress("recoNRings", recoNRings, &b_recoNRings);
+		Final_Reconstruction->SetBranchAddress("cluster", Final_cluster, &b_Final_cluster);
+		Final_Reconstruction->SetBranchAddress("ring", Final_ring, &b_Final_ring);
+		Final_Reconstruction->SetBranchAddress("recoVtxX", recoVtxX, &b_recoVtxX);
+		Final_Reconstruction->SetBranchAddress("recoVtxY", recoVtxY, &b_recoVtxY);
+		Final_Reconstruction->SetBranchAddress("recoVtxZ", recoVtxZ, &b_recoVtxZ);
+		Final_Reconstruction->SetBranchAddress("recoTime", recoTime, &b_recoTime);
+		Final_Reconstruction->SetBranchAddress("recoDirX", recoDirX, &b_recoDirX);
+		Final_Reconstruction->SetBranchAddress("recoDirY", recoDirY, &b_recoDirY);
+		Final_Reconstruction->SetBranchAddress("recoDirZ", recoDirZ, &b_recoDirZ);
+		Final_Reconstruction->SetBranchAddress("recoChkvAngle", recoChkvAngle, &b_recoChkvAngle);
+		Final_Reconstruction->SetBranchAddress("recoEnergy", recoEnergy, &b_recoEnergy);
+		Final_Reconstruction->SetBranchAddress("recoPID", recoPID, &b_recoPID);
+	}
+	
+	
 	gSystem->cd(originalDirectory);
 	
 	
@@ -693,8 +971,6 @@ void titus_eve_4Reco()
 	/*
 	load the first event
 	*/
-	
-	
 	load_event();
 	/*
 	Get Eve started
@@ -754,22 +1030,12 @@ public:
 		std::cout<<" you want to find an event with NEUT mode = "<<mode<<std::endl;
 		Int_t mode=NEUTMode->GetIntNumber();
 		std::cout<<" you want to find an event with NEUT mode = "<<mode<<std::endl;
-		/*	Int_t eventRequested=NumberEntry->GetIntNumber();
-		if(eventRequested>=TitusEvents->GetEntries())
-		{
-		cout<<" You  can not go beyond the  end of the file, there are "
-		<<TitusEvents->GetEntries()<<" entries "<<endl;
-		cout<<" numbered 0 to "<<TitusEvents->GetEntries()-1<<" ."<<endl;
-		return;
-		}
-		if(eventRequested<0)
-		{
-		cout<<" Events numbers start at zero "<<endl;
-		return;
-		}
-		event_id=eventRequested;
+		
+	}
+	void PrimaryOnly(Bool_t check)
+	{
+		drawPrimaryOnly=check;
 		load_event();
-		*/
 	}
 	
 };
@@ -795,7 +1061,7 @@ void make_gui()
 	EvNavHandler* fh = new EvNavHandler;
 	TGGroupFrame* Group;
 	
-	Group = new TGGroupFrame(fCanvasWindow->GetContainer(),"Event Navigation");
+	Group = new TGGroupFrame(fCanvasWindow->GetContainer(),"Event Navigation And Selection");
 	TGHorizontalFrame* hf = new TGHorizontalFrame(Group,32,32);
 	{
 		
@@ -837,6 +1103,17 @@ void make_gui()
 		//hf->AddFrame( NumberEntry);//, new TGLayoutHints(kLHintsRightX, 5, 5, 5, 5));
 	}
 	Group->AddFrame(hf);
+	hf = new TGHorizontalFrame(Group,32,32);
+	{
+		TGCheckButton *estat = new TGCheckButton(hf, "Primary MC tracks only",1);
+		estat->SetToolTipText("Show just Primary MC tracks, or all");
+		estat->SetState(kButtonDown);
+		drawPrimaryOnly=kTRUE;
+		hf->AddFrame(estat);
+		estat->Connect("Toggled(Bool_t)", "EvNavHandler", fh, "PrimaryOnly(Bool_t)");
+	}
+	Group->AddFrame(hf);
+	
 	fCanvasWindow->AddFrame(Group);
 	
 	frmMain->AddFrame(fCanvasWindow,new TGLayoutHints(kLHintsExpandX | kLHintsExpandY,
@@ -934,15 +1211,53 @@ void load_event()
 		if(pmt->second.count>maxCount)maxCount=pmt->second.count;
 		pmt->second.time/=pmt->second.count;
 	}
+	/*
+	Set range max to 90% of hit pmts
+	*/
+	int NPMTsHit=PMTmap.size();
+	int limit=0.85*NPMTsHit;
+	int lowLimit=0.02*NPMTsHit;
+	
+	std::set<float> orderedHits;
+	for(std::map<int,hitStore>::iterator pmt=PMTmap.begin();pmt!=PMTmap.end();pmt++)
+	{
+		//	int key=pmt->first;
+		hitStore value=pmt->second;
+		//	pair<int,hitStore> p(key,value);
+		orderedHits.insert(value.time);
+	}
+	//	for(std::set<pair<int, hitStore>, hitStoreCompare >::iterator pmt=orderedHits.begin();pmt!=orderedHits.end();pmt++)
+  int count=0;
+  float timeLimit=10000;
+  bool foundLow=kFALSE;
+  float timeMin=0.0;
+  for(std::set<float>::iterator pmt=orderedHits.begin();pmt!=orderedHits.end();pmt++)
+	{
+		count++;
+		if(!foundLow)
+		{
+			if(count>lowLimit)
+			{
+				timeMin=*pmt;
+				foundLow=kTRUE;
+			}
+		}
+		if(count>limit)
+		{
+			timeLimit=*pmt;
+			break;
+		}
+	}
+	timeLimit=fmin(timeLimit,150);
 	if(fDigitIsTime)
 	{
-		if(maxT>1000)maxT=1000;
+		if(maxT>100000)maxT=100000;
 		pal3D->SetLimits(minT,maxT);
-		pal3D->SetMin(minT);
-		pal3D->SetMax(maxT);
+		pal3D->SetMin(timeMin);
+		pal3D->SetMax(timeLimit);
 		palUnrolled->SetLimits(minT,maxT);
-		palUnrolled->SetMin(minT);
-		palUnrolled->SetMax(maxT);
+		palUnrolled->SetMin(timeMin);
+		palUnrolled->SetMax(timeLimit);
 	}
 	else
 	{
@@ -1010,6 +1325,39 @@ void load_event()
 		UnrolledScene->AddElement(CherenkovHits2);
 	}
 	TEveElementList* Particles= new TEveElementList("Truth Particles");
+	TEveElementList* NeutronCaptures= new TEveElementList("Neutron Captures");
+	//cout<<" the neutrino has energy "<<neutrino_E<<" id "<<neutrino_id<<" x,y,z "<<neutrino_px
+	//<<" "<<neutrino_py<<" "<<neutrino_pz<<" ntrks "<<ntrks<<" nneutrons "<<nneutrons<<" vtx "<<vtxx<<" "<<vtxy<<" "<<vtxz<<endl;
+	
+  // draw a line to represent the incoming neutrino
+  TEveLine* neutrino = new TEveLine;
+	neutrino->SetLineColor(kWhite);
+  neutrino->SetLineWidth(2);
+  neutrino->SetLineStyle(2);
+  //cout            <<part_xEnd[i]<<" "<<part_yEnd[i]<<" "<<part_zEnd[i]<<endl;
+	neutrino->SetNextPoint(10.*vtxx,10.*vtxy,10.*vtxz);
+	// calculate start position at wall of cylinder
+	// first calculate angle wrt z axis
+	float theta = atan2(sqrt(neutrino_px*neutrino_px+neutrino_py*neutrino_py),neutrino_pz);
+	float zToWall=(10.*vtxz)+maxZ;
+	float length=zToWall;
+	if(cos(theta)!=0)length=zToWall/cos(theta);
+	neutrino->SetNextPoint(10.*vtxx-length*neutrino_px,10.*vtxy-length*neutrino_py,10.*vtxz-length*neutrino_pz);
+	int pdgCode=neutrino_id;
+	double ke=neutrino_E;
+	TString Name;
+	if(pdgCode==12)Name="electron anti-neutrino";
+	if(pdgCode==-12)Name="electron anti-neutrino";
+	if(pdgCode==14)Name=" muon neutrino";
+	if(pdgCode==-14)Name="muon anti-neutrino";
+	Name+=(Form(" energy %f MeV ",ke));
+	
+	if(abs(pdgCode)==12)neutrino->SetMainColor(kBlue);
+	if(abs(pdgCode)==14)neutrino->SetMainColor(kGreen);
+	neutrino->SetName(Name);
+	neutrino->SetTitle(Name);
+	Particles->AddElement(neutrino);
+	
 	// an array of pointers to TEveLine objects 
 	TEveLine ** ls = new TEveLine*[npart];
 	for(int i = 0;i<npart;i++)
@@ -1017,31 +1365,32 @@ void load_event()
 		ls[i] = new TEveLine(2); // create a new TEveLine for every true particle
 		ls[i]->SetLineColor(kWhite);
 		ls[i]->SetLineWidth(3);
-		//cout<<" parton "<<part_xStart[i]<<" "<<part_yStart[i]<<" "<<part_zStart[i]<<" ";
-		//cout            <<part_xEnd[i]<<" "<<part_yEnd[i]<<" "<<part_zEnd[i]<<endl;
 		ls[i]->SetNextPoint(part_xStart[i],part_yStart[i],part_zStart[i]);
 		ls[i]->SetNextPoint(part_xEnd[i],part_yEnd[i],part_zEnd[i]);
-		//cout<<" pid "<<part_pid[i]<<endl;
 		int pdgCode=part_pid[i];
 		if(pdgCode==0)continue;
 		double ke=part_KEstart[i];
-		TString Name(Form("%i %f.*MeV PDG code %d ",(int)TMath::Max(0.,2-TMath::Log10(ke)),ke,pdgCode));
+		TString Name(Form("MC particle %d, %f  MeV  ",i,ke));
 		
-		
-		if(pdgCode==11)Name+=" (electron)";
-		if(pdgCode==-11)Name+=" (positron)";
-		if(pdgCode==12)Name+=" (electron neutrino)";
-		if(pdgCode==-12)Name+=" (electron anti-neutrino)";
-		if(pdgCode==13)Name+=" (muon)";
-		if(pdgCode==-13)Name+="(anti-muon)";
-		if(pdgCode==14)Name+=" (muon neutrino)";
-		if(pdgCode==-14)Name+=" (muon anti-neutrino)";
-		if(pdgCode==2212)Name+=" (proton)";
-		if(pdgCode==-2212)Name+=" (anti-proton)";
-		if(pdgCode==22)Name+=" (photon)";
-		
-		if(pdgCode==211)Name+="pi plus";
-		if(pdgCode==2112)Name+="neutron";
+		switch(pdgCode)
+		{
+		case 11: Name+=" (electron)"; break;
+		case -11: Name+=" (positron)";break;
+		case 12:Name+=" (electron neutrino)"; break;
+		case -12 : Name+=" (electron anti-neutrino)";break;
+		case 13 : Name+=" (muon)";break;
+		case -13 :Name+="(anti-muon)";break;
+		case 14:Name+=" (muon neutrino)"; break;
+		case -14 :Name+=" (muon anti-neutrino)";break;
+		case  2212 :Name+=" (proton)";break;
+		case -2212 :Name+=" (anti-proton)";
+		case 22 :Name+=" (photon)";break;
+		case 211:Name+="(pi plus)";break;
+		case -211:Name+="(pi minus)";break;
+		case 111 :Name+="(pi0)";break;
+		case 2112:Name+="(neutron)";break;
+		default : Name+=Form(" pdg code %i",pdgCode);
+		}
 		
 		if(abs(pdgCode)==11)ls[i]->SetMainColor(kYellow);
 		if(abs(pdgCode)==12)ls[i]->SetMainColor(kBlue);
@@ -1052,24 +1401,177 @@ void load_event()
 		if(abs(pdgCode)==2112)ls[i]->SetMainColor(kBlue);
 		ls[i]->SetName(Name);
 		ls[i]->SetTitle(Name);
-		if(part_parentid[i]==0) Particles->AddElement(ls[i]); //primary particles are added to the top level 
+		
+		if(part_parentid[i]==0) 
+			Particles->AddElement(ls[i]); //primary particles are added to the top level 
+		else
+			if(drawPrimaryOnly)
+			{
+				/*
+				If this is NOT a primary, and drawPrimaryOnly is TRUE, then set it to be not visible
+				*/
+				ls[i]->SetRnrSelf(kFALSE);
+		  }
+		  
+		  
 	}
 	// now add other objects to their parent object to create a hierarchy in Eve
+	std::map<int,TEveElement*> captureList;
 	for(int i = 0; i<npart; i++){
+		pdgCode=part_pid[i];
 		if(part_parentid[i]==0) continue; // primaries are already there
 		int parentIndex = 0;
 		// look through the list of particles for the parent of this one
 		// parentIndex is the pointer to this objects parent in the array
 		while(part_trackid[parentIndex]!=part_parentid[i] && parentIndex<npart) parentIndex++;
 		if(parentIndex==npart) Particles->AddElement(ls[i]); // hit the end without finding parent
-		else ls[parentIndex]->AddElement(ls[i]); // add object to its parent
+		else 
+		{
+			if(pdgCode==2112)
+			{
+				// add the neutron to the list under its parent as usual
+				ls[parentIndex]->AddElement(ls[i]); // add object to its parent
+				// Look for neutron capture , add it to the neutron.
+				TVector3 n(part_xEnd[i],part_yEnd[i],part_zEnd[i]);
+				for(int iC = 0; iC<ncapturecount; iC++){
+					TVector3 capture(capt_x[iC],capt_y[iC],capt_z[iC]);
+					float diff=(capture-n).Mag();
+					if(diff<0.0001)
+					{
+						TLorentzVector centre(capt_x[iC],capt_y[iC],capt_z[iC],capt_t0[iC]);
+						float side=40;
+						float vert[24];
+						CreateCube(vert,centre,side);
+						TEveBox* capture= new TEveBox(Form("Neutron Capture %i",iC));
+						capture->SetVertices(vert);
+						ls[i]->AddElement(capture); // apend a capture to the neutron
+						captureList[i]=capture;	// remember this for later
+						
+						capture= new TEveBox(Form("Neutron Capture %i",iC));
+						capture->SetVertices(vert);
+						NeutronCaptures->AddElement(capture); // also maintain a separate list for convenience
+						
+					}
+				}
+			}
+			else
+				if(captureList.find(parentIndex)==captureList.end()) // if parent of this element is NOT a captured neutron
+				ls[parentIndex]->AddElement(ls[i]); // add object to its parent
+			else
+				captureList[parentIndex]->AddElement(ls[i]); // add this element to the parent capture object
+			
+			
+		}
 	}
 	
 	gEve->AddElement(Particles);
-	//	TitusEvents->
+	//	Now look at captures
+	//	if(ncapturecount>0){
+	/*		cout<<" there are "<<ncapturecount<<" neutron captures "<<endl;
+	for(int i = 0; i<ncapturecount; i++){
+	cout<<i<<" "<<capt_x[i]<<" "<<capt_y[i]<<" "<<capt_z[i]<<" "<<capt_t0[i]<<" "<<capt_num[i]
+	<<" "<<capt_pid[i]<<" "<<capt_nucleus[i]<<" "<<capt_nphot[i]<<" "<<capt_ngamma[i]<<endl;
+	// create a box around this point //
+	TLorentzVector centre(capt_x[i],capt_y[i],capt_z[i],capt_t0[i]);
+	float side=40;
+	float vert[24];
+	CreateCube(vert,centre,side);
+	TEveBox* capture= new TEveBox(Form("Neutron Capture %i",i));
+	capture->SetVertices(vert);
+	NeutronCaptures->AddElement(capture);
+	}
+	*/
+	if(ncapturecount>0)gEve->AddElement(NeutronCaptures);
+	//}
 	
+  
 	gEve->Redraw3D(kFALSE, kTRUE);
 	NumberEntry->SetIntNumber(event_id);
+	if(haveReconFile)loadReconstructedEvent();
 }
-
-
+void     CreateCube(float vert[24],TLorentzVector centreVec,float side){
+	
+	
+	#define Xcoord 0
+	#define Ycoord 1
+	#define Zcoord 2
+	
+  
+	float centre[3];
+	centre[Xcoord]=centreVec.X();
+	centre[Ycoord]=centreVec.Y();
+	centre[Zcoord]=centreVec.Z();
+	vert[Xcoord]=centre[Xcoord]-side/2;
+	vert[Ycoord]=centre[Ycoord]-side/2;
+	vert[Zcoord]=centre[Zcoord]-side/2;
+	
+	NextCubeVertex(&vert[0],side,Xcoord,1.0);
+	NextCubeVertex(&vert[3],side,Ycoord,1.0);
+	NextCubeVertex(&vert[6],side,Xcoord,-1.0);
+	
+	
+	vert[12+Xcoord]=centre[Xcoord]-side/2.0;
+	vert[12+Ycoord]=centre[Ycoord]-side/2.0;
+	vert[12+Zcoord]=centre[Zcoord]+side/2.0;
+	
+	NextCubeVertex(&vert[12],side,Xcoord,1.0);
+	NextCubeVertex(&vert[15],side,Ycoord,1.0);
+	NextCubeVertex(&vert[18],side,Xcoord,-1.0);
+	
+	return ;
+	
+	
+}
+void               NextCubeVertex(float vert[6],float step,int changeMe,float sign){
+	vert[3]=vert[0];
+	vert[4]=vert[1];
+	vert[5]=vert[2];
+	vert[changeMe+3]+=sign*step;
+	
+}
+void loadReconstructedEvent()
+{
+	//	cout<<" load reconstructed event here "<<endl;
+	Final_Reconstruction->GetEvent(event_id);
+	//	cout<<" Reconstructed Event : "<<Final_evt;
+	//	cout<<" nclusters "<<Final_nClusters<<endl;
+	//	for(int cluster=0;cluster<Final_nClusters;cluster++)
+	//	{
+	//		cout<<"cluster:"<<cluster<<" nrings "<<recoNRings[cluster]<<endl;
+	//	}
+	TEveElementList* ReconstructedObjects = new TEveElementList("Reconstructed Objects");
+	for(int subevent=0;subevent<Final_nSubevents;subevent++)
+	{
+		
+		// draw a line to represent the reconstructed particle
+		if(!isnan(recoDirX[subevent]))
+		{
+			TEveLine* Track  = new TEveLine;
+			Track->SetLineColor(kViolet);
+			Track->SetLineWidth(4);
+			Track->SetNextPoint(10.0*recoVtxX[subevent],10.0*recoVtxY[subevent],10.0*recoVtxZ[subevent]);
+			float scale=1.0;
+			float endX=10.0*recoVtxX[subevent]+scale*recoEnergy[subevent]*recoDirX[subevent];
+			float endY=10.0*recoVtxY[subevent]+scale*recoEnergy[subevent]*recoDirY[subevent];
+			float endZ=10.0*recoVtxZ[subevent]+scale*recoEnergy[subevent]*recoDirZ[subevent];
+			Track->SetNextPoint(endX,endY,endZ);
+			TString Name(Form("Reconstructed Track %i,  energy %f MeV ",subevent,recoEnergy[subevent]));
+			Track->SetName(Name);
+			Track->SetTitle(Name);
+			ReconstructedObjects->AddElement(Track);
+		}
+		else
+		{
+			TLorentzVector centre(10.0*recoVtxX[subevent] ,10.0*recoVtxY[subevent] ,10.0*recoVtxZ[subevent], recoTime[subevent]);
+			float side=40;
+			float vert[24];
+			CreateCube(vert,centre,side);
+			TEveBox* RecoObject= new TEveBox(Form("Reconstructed Object  %i, energy: %f",subevent,recoEnergy[subevent]));
+			RecoObject->SetVertices(vert);
+			RecoObject->SetLineColor(kViolet);
+			RecoObject->SetFillColor(kViolet);
+			ReconstructedObjects->AddElement(RecoObject); // apend a capture to the neutron
+		}
+	}
+	gEve->AddElement(ReconstructedObjects);
+}
